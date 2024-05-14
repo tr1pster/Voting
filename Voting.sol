@@ -9,70 +9,70 @@ contract VotingSystem is Ownable {
 
     struct Poll {
         string question;
-        string[] choices;
-        mapping(address => bool) voterHasVoted;
-        mapping(uint => uint) choiceVotes;
-        bool isActive;
+        string[] options;
+        mapping(address => bool) hasVoted;
+        mapping(uint => uint) votesPerOption;
+        bool isOpen;
     }
 
-    mapping(uint => Poll) public polls;
-    uint public totalPolls;
+    mapping(uint => Poll) public pollRegistry;
+    uint public pollCount;
 
-    mapping(address => bool) public isVoterRegistered;
+    mapping(address => bool) public registeredVoters;
 
-    event VoterRegistered(address voter);
-    event PollCreated(uint pollId, string question, string[] choices);
-    event Voted(uint indexed pollId, address voter, uint choiceIndex);
+    event VoterRegistered(address indexed voter);
+    event PollCreated(uint indexed pollId, string question, string[] options);
+    event VoteCast(uint indexed pollId, address voter, uint optionIndex);
 
     modifier onlyRegisteredVoter() {
-        require(isVoterRegistered[msg.sender], "Not a registered voter");
+        require(registeredVoters[msg.sender], "Not a registered voter");
         _;
     }
 
     function registerVoter() external {
-        require(!isVoterRegistered[msg.sender], "Voter already registered");
-        isVoterRegistered[msg.sender] = true;
+        require(!registeredVoters[msg.sender], "Voter already registered");
+        registeredVoters[msg.sender] = true;
         emit VoterRegistered(msg.sender);
     }
 
-    function createPoll(string memory question, string[] memory choices) external onlyOwner {
-        require(choices.length > 1, "Poll must have at least two choices");
-        Poll storage newPoll = polls[totalPolls++];
+    function createPoll(string memory question, string[] memory options) external onlyOwner {
+        require(options.length > 1, "Poll must have at least two options");
+        Poll storage newPoll = pollRegistry[pollCount++];
         newPoll.question = question;
-        newPoll.choices = choices;
-        newPoll.isActive = true;
-        emit PollCreated(totalPolls - 1, question, choices);
+        newPoll.options = options;
+        newPoll.isOpen = true;
+        emit PollCreated(pollCount - 1, question, options);
     }
     
-    function castVote(uint pollId, uint choiceIndex, bytes memory signature) external onlyRegisteredVoter {
-        require(polls[pollId].isActive, "Poll does not exist");
-        require(!polls[pollId].voterHasVoted[msg.sender], "Voter has already cast a vote");
-        require(verifySignatureWithOwner(keccak256(abi.encodePacked(msg.sender, pollId, choiceIndex)), signature), "Signature verification failed");
+    function submitVote(uint pollId, uint optionIndex, bytes memory signature) external onlyRegisteredVoter {
+        require(pollRegistry[pollId].isOpen, "Poll does not exist or is closed");
+        require(!pollRegistry[pollId].hasVoted[msg.sender], "Voter has already submitted a vote");
+        require(verifyOwnerSignature(keccak256(abi.encodePacked(msg.sender, pollId, optionIndex)), signature), "Signature verification failed");
 
-        polls[pollId].choiceVotes[choiceIndex]++;
-        polls[pollId].voterHasVoted[msg.sender] = true;
+        pollRegistry[pollId].votesPerOption[optionIndex]++;
+        pollRegistry[pollId].hasVoted[msg.sender] = true;
 
-        emit Voted(pollId, msg.sender, choiceIndex);
+        emit VoteCast(pollId, msg.sender, optionIndex);
     }
     
-    function verifySignatureWithOwner(bytes32 dataHash, bytes memory signature) internal view returns (bool) {
+    function verifyOwnerSignature(bytes32 dataHash, bytes memory signature) internal view returns (bool) {
         bytes32 ethSignedHash = dataHash.toEthSignedMessageHash();
         return ethSignedHash.recover(signature) == owner();
     }
 
-    function retrievePoll(uint pollId) public view returns (string memory question, string[] memory choices, uint[] memory votesCount) {
-        require(polls[pollId].isActive, "Poll does not exist");
-        question = polls[pollId].question;
-        choices = polls[pollId].choices;
+    function getPollDetails(uint pollId) public view returns (string memory question, string[] memory options, uint[] memory voteCounts) {
+        require(pollRegistry[pollId].isOpen, "Poll does not exist or is closed");
+        question = pollRegistry[pollId].question;
+        options = pollRegistry[pollId].options;
         
-        votesCount = new uint[](polls[pollId].choices.length);
-        for(uint i = 0; i < polls[pollId].choices.length; i++) {
-            votesCount[i] = polls[pollId].choiceVotes[i];
+        voteCounts = new uint[](pollRegistry[pollId].options.length);
+        for(uint i = 0; i < pollRegistry[pollId].options.length; i++) {
+            voteCounts[i] = pollRegistry[pollId].votesPerOption[i];
         }
     }
 
-    function hasVoterVoted(uint pollId, address voter) public view returns (bool) {
-        require(polls[pollId].isActive, "Poll does not exist");
-        return polls[pollId].voterHasVoted[voter];
+    function checkVoterParticipation(uint pollId, address voter) public view returns (bool) {
+        require(pollRegistry[pollId].isOpen, "Poll does not exist or is closed");
+        return pollRegistry[pollId].hasVoted[voter];
     }
 }
