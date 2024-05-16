@@ -6,52 +6,53 @@ import votingContractABI from './VotingContractABI.json';
 
 const VOTING_CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
 
-const useVotingWeb3 = () => {
-  const [web3Instance, setWeb3Instance] = useState<Web3 | null>(null);
-  const [votingContract, setVotingContract] = useState<any>(null);
-  const [userAccounts, setUserAccounts] = useState<string[]>([]);
-  const [isWeb3Connected, setIsWeb3Connected] = useState<boolean>(false);
+const useVoting = () => {
+  const [web3, setWeb3] = useState<Web3 | null>(null);
+  const [votingContractInstance, setVotingContractInstance] = useState<any>(null);
+  const [connectedAccounts, setConnectedAccounts] = useState<string[]>([]);
+  const [isConnectedToWeb3, setIsConnectedToWeb3] = useState<boolean>(false);
 
   useEffect(() => {
-    const initializeWeb3 = async () => {
+    const setupWeb3Connection = async () => {
       if (window.ethereum) {
         try {
-          await window.ethereum.enable();
-          const instantiatedWeb3 = new Web3(window.ethereum);
-          setWeb3Instance(instantiatedWeb3);
-          const retrievedAccounts = await instantiatedWeb3.eth.getAccounts();
-          setUserAccounts(retrievedAccounts);
-          setIsWeb3Connected(retrievedAccounts && retrievedAccounts.length > 0);
-          const instantiatedContract = new instantiatedWeb3.eth.Contract(
+          // Request account access
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          const web3Instance = new Web3(window.ethereum);
+          setWeb3(web3Instance);
+          const accounts = await web3Instance.eth.getAccounts();
+          setConnectedAccounts(accounts);
+          setIsConnectedToWeb3(accounts.length > 0);
+          const contractInstance = new web3Instance.eth.Contract(
             votingContractABI as AbiItem[], 
             VOTING_CONTRACT_ADDRESS
           );
-          setVotingContract(instantiatedContract);
+          setVotingContractInstance(contractInstance);
         } catch (error) {
-          console.error("Failed to connect to MetaMask", error);
+          console.error("Failed to establish connection with MetaMask", error);
         }
       } else {
-        console.log('Please use a web3-enabled browser like MetaMask!');
+        console.log('Missing web3 provider. Please consider using MetaMask or another web3 wallet.');
       }
     };
 
-    initializeWeb3();
+    setupWeb3Connection();
   }, []);
 
-  const submitVote = async (candidateId: number) => {
-    if (!web3Instance || !votingContract || userAccounts.length === 0) {
-      console.log('Web3 has not been initialized, the contract is not set, or no accounts are connected.');
+  const castVote = async (candidateId: number) => {
+    if (!web3 || !votingContractInstance || connectedAccounts.length === 0) {
+      console.log('Connection to web3 is not established, contract not initialized, or no accounts connected.');
       return;
     }
     try {
-      const transactionReceipt = await votingContract.methods.vote(candidateId).send({ from: userAccounts[0] });
-      console.log('Transaction receipt: ', transactionReceipt);
+      const voteReceipt = await votingContractInstance.methods.vote(candidateId).send({ from: connectedAccounts[0] });
+      console.log('Vote transaction receipt: ', voteReceipt);
     } catch (error) {
-      console.error('Failed to send vote transaction', error);
+      console.error('Error executing vote transaction', error);
     }
   };
 
-  return { isWeb3Connected, userAccounts, submitVote };
+  return { isConnectedToWeb3, connectedAccounts, castVote };
 };
 
-export default useVotingWeb3;
+export default useVoting;
