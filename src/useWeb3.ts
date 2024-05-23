@@ -16,7 +16,6 @@ const useVoting = () => {
     const setupWeb3Connection = async () => {
       if (window.ethereum) {
         try {
-          // Request account access
           await window.ethereum.request({ method: 'eth_requestAccounts' });
           const web3Instance = new Web3(window.ethereum);
           setWeb3(web3Instance);
