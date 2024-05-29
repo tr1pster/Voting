@@ -9,8 +9,21 @@ import (
     "time"
 
     "github.com/gorilla/mux"
+    "github.com/gorilla/websocket"
     "github.com/joho/godotenv"
 )
+
+var upgrader = websocket.Upgrader{
+    ReadBufferSize:  1024,
+    WriteBufferSize: 1024,
+    CheckOrigin: func(r *http.Request) bool {
+        // Implement your own CORS policy here or leave as true for testing
+        return true
+    },
+}
+
+var clients = make(map[*websocket.Conn]bool) // connected clients
+var broadcast = make(chan Vote)              // broadcast channel
 
 type Vote struct {
     VoterID string `json:"voterId"`
@@ -49,6 +62,9 @@ func voteHandler(w http.ResponseWriter, r *http.Request) {
     VoteCount.Lock()
     VoteCount.m[vote.Choice]++
     VoteCount.Unlock()
+
+    // Send vote to the broadcast channel
+    broadcast <- vote
 
     w.WriteHeader(http.StatusOK)
 }
@@ -89,6 +105,46 @@ func votingStatusHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+func handleConnections(w http.ResponseWriter, r *http.Request) {
+    // Upgrade initial GET request to a WebSocket
+    ws, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer ws.Close()
+
+    // Register our new client
+    clients[ws] = true
+
+    for {
+        var vote Vote
+        // Read in a new vote and ignore it
+        // just keep the connection alive
+        err := ws.ReadJSON(&vote)
+        if err != nil {
+            log.Printf("error: %v", err)
+            delete(clients, ws)
+            break
+        }
+    }
+}
+
+func handleMessages() {
+    for {
+        // Grab the next vote from the broadcast channel
+        vote := <-broadcast
+        // Send it out to every client that is currently connected
+        for client := range clients {
+            err := client.WriteJSON(vote)
+            if err != nil {
+                log.Printf("error: %v", err)
+                client.Close()
+                delete(clients, client)
+            }
+        }
+    }
+}
+
 func main() {
     err := godotenv.Load()
     if err != nil {
@@ -99,6 +155,10 @@ func main() {
     r.HandleFunc("/vote", voteHandler).Methods("POST")
     r.HandleFunc("/results", resultsHandler).Methods("GET")
     r.HandleFunc("/status", votingStatusHandler).Methods("GET")
+
+    r.HandleFunc("/ws", handleConnections) // WebSocket route
+
+    go handleMessages()
 
     srv := &http.Server{
         Handler:      r,
